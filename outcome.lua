@@ -4,7 +4,7 @@
 --
 -- @module outcome
 local outcome = {
-  _VERSION = "0.2.1",
+  _VERSION = "0.2.2",
   _DESCRIPTION = 'Functional and composable option and result types for Lua.',
   _URL = 'https://github.com/mtdowling/outcome',
   _LICENSE = [[
@@ -930,11 +930,11 @@ end
 -- @treturn Result Returns `Result<T, E>`
 -- @within Result functions
 function outcome.pcall(f, ...)
-  local value, err = pcall(f, ...)
-  if err then
-    return outcome.ok(value)
+  local ok, result = pcall(f, ...)
+  if ok then
+    return outcome.ok(result)
   else
-    return outcome.err(err)
+    return outcome.err(result)
   end
 end
 
