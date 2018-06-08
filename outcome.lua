@@ -1,11 +1,10 @@
 --- Outcome: Functional and composable option and result types for Lua.
 --
 --    local outcome = require "outcome"
---    local Option, Result = outcome.Option, outcome.Result
 --
 -- @module outcome
 local outcome = {
-  _VERSION = "0.1.0",
+  _VERSION = "0.2.0",
   _DESCRIPTION = 'Functional and composable option and result types for Lua.',
   _URL = 'https://github.com/mtdowling/outcome',
   _LICENSE = [[
@@ -32,8 +31,21 @@ local outcome = {
   ]]
 }
 
-local assert, type = assert, type
+local type, error, pcall, string = type, error, pcall, string
 local setmetatable, getmetatable = setmetatable, getmetatable
+
+local OK, ERR = true, false
+local OPTION_CLASS, RESULT_CLASS = "outcome.Option", "outcome.Result"
+
+local function assertOption(value)
+  if type(value) ~= "table" or value.class ~= OPTION_CLASS then
+    error("Value must be an `Option<T>`. Found " .. value)
+  end
+  return value
+end
+
+-- Option
+------------------------------------------------------------------------------
 
 --- Option type.
 --
@@ -45,226 +57,118 @@ local setmetatable, getmetatable = setmetatable, getmetatable
 -- **Examples**
 --
 --    local outcome = require "outcome"
---    local Option = outcome.Option
 --
---    -- Options are either empty or present.
---    assert(Option.empty():isEmpty())
---    assert(Option.of("foo"):isPresent())
+--    -- Options are either Some or None.
+--    assert(outcome.none():isNone())
+--    assert(outcome.some("foo"):isSome())
 --
 --    -- You can map over the value in an Option.
---    local result = Option.of(1)
+--    local result = outcome.some(1)
 --        :map(function(value) return value + 1 end)
 --        :unwrap()
 --    assert(result == 2)
 --
 --    -- Raises an error with the message provided in expect.
---    Option.empty():expect("Expected a value"):
+--    outcome.none():expect("Expected a value"):
 --
 --    -- You can provide a default value when unwrapping an Option.
---    assert("foo" == Option.empty():unwrapOr("foo"))
+--    assert("foo" == outcome.none():unwrapOr("foo"))
 --
 -- @type Option
-local Option = {}
-
-local OptionMetatable = {
-  __index = Option,
-  __lt = function (lhs, rhs)
-    return lhs._value ~= nil and rhs._value ~= nil and lhs._value < rhs._value
-  end,
-  __le = function (lhs, rhs)
-    return lhs._value ~= nil and rhs._value ~= nil and lhs._value <= rhs._value
-  end,
-  __eq = function(a, b)
-    return a._value == b._value
-  end
-}
-
-local function assertOption(value)
-  assert(type(value) == "table" and getmetatable(value) == OptionMetatable,
-      "Value must be an `Option<T>`. Found " .. type(value))
-  return value
-end
-
---- Create a new Option, wrapping a value.
--- If the provided value is nil, then the Option is considered empty.
---
---    local opt = Option.of("abc")
---    assert(opt:isPresent())
---    assert("abc" == opt:unwrap())
---
--- @param value Value T to wrap.
--- @treturn Option `Option<T>`
-function Option.of(value)
-  return setmetatable({_value = value}, OptionMetatable)
-end
-
---- Returns an empty Option.
---
---    local opt = Option.empty()
---    assert(opt:isEmpty())
---
--- @treturn Option Returns `Option<T>`
--- @treturn Option `Option<T>`
-function Option.empty()
-  return outcome._EMPTY_OPTION
-end
+local Option = {} -- luacheck: ignore
 
 --- Returns true if the option contains a value.
 -- @treturn bool
-function Option:isPresent()
-  return self._value ~= nil
-end
+function Option:isSome() end
 
 --- Returns true if the option value is nil.
 -- @treturn bool
-function Option:isEmpty()
-  return self._value == nil
-end
+function Option:isNone() end
 
---- Returns the value if present, or throws an error.
+--- Invokes a method with the value if Some.
+--
+--    local opt = outcome.some("abc")
+--    opt:ifSome(function(value) print(value) end)
+--
+-- @tparam function consumer Consumer to invoke with a side effect.
+function Option:ifSome(consumer) end
+
+--- Invokes a method if the option value is None.
+--
+--    local opt = outcome.none()
+--    opt:ifNone(function(value) print("It's None!") end)
+--
+-- @tparam function consumer Method to invoke if the value is None.
+function Option:ifNone(consumer) end
+
+--- Returns the value if Some, or throws an error.
 -- @return T the wrapped option.
-function Option:unwrap()
-  return self:expect()
-end
+function Option:unwrap() end
 
---- Unwraps and returns the value if present, or raises a specific error.
+--- Unwraps and returns the value if Some, or returns default value.
 --
---    local option = Option.of("foo")
---    local value = option:expect("Error message")
---
--- @tparam string message Message to raise.
--- @return T returns the wrapped value.
-function Option:expect(message)
-  assert(self._value ~= nil, message or "Call to unwrap on a nil value")
-  return self._value
-end
-
---- Unwraps and returns the value if present, or returns default value.
---
---    local opt = Option.empty()
+--    local opt = outcome.none()
 --    assert("foo", opt:unwrapOr("foo"))
 --
 -- @param defaultValue Default value T to return.
 -- @return T returns the wrapped value or the default.
-function Option:unwrapOr(defaultValue)
-  if self._value ~= nil then
-    return self._value
-  else
-    return defaultValue
-  end
-end
+function Option:unwrapOr(defaultValue) end
 
---- Unwraps and returns the value if present, or returns the result of invoking
+--- Unwraps and returns the value if Some, or returns the result of invoking
 -- a function that when called returns a value.
 --
---    local opt = Option.empty()
+--    local opt = outcome.none()
 --    assert("foo", opt:unwrapOrElse(function() return "foo" end))
 --
--- @tparam function valueProvider to invoke if the value is empty.
+-- @tparam function valueProvider to invoke if the value is None.
 -- @return T returns the wrapped value or the value returned from valueProvider.
-function Option:unwrapOrElse(valueProvider)
-  if self._value ~= nil then
-    return self._value
-  else
-    return valueProvider()
-  end
-end
+function Option:unwrapOrElse(valueProvider) end
 
---- Takes the value out of the option, leaving a nil in its place.
+--- Unwraps and returns the value if Some, or raises a specific error.
 --
---    local optA = Option.of("foo")
---    local optB = optA:take()
---    assert("foo", optB:unwrap())
---    assert(optA:isEmpty())
+--    local option = outcome.some("foo")
+--    local value = option:expect("Error message")
 --
--- @treturn Option Returns `Option<T>`
-function Option:take()
-  if self._value == nil then
-    return Option.empty()
-  end
-  local result = Option.of(self._value)
-  self._value = nil
-  return result
-end
+-- @tparam string message Message to raise.
+-- @return T returns the wrapped value.
+function Option:expect(message) end
 
---- Invokes a method with the value if present.
+--- Returns `other` if the option value is Some, otherwise returns self.
 --
---    local opt = Option.of("abc")
---    opt:ifPresent(function(value) print(value) end)
---
--- @tparam function consumer Consumer to invoke with a side effect.
-function Option:ifPresent(consumer)
-  if self._value ~= nil then
-    consumer(self._value)
-  end
-end
-
---- Invokes a method if the option value is empty.
---
---    local opt = Option.empty()
---    opt:ifEmpty(function(value) print("It's empty!") end)
---
--- @tparam function consumer Method to invoke if the value is empty.
-function Option:ifEmpty(consumer)
-  if self._value == nil then
-    consumer()
-  end
-end
-
---- Returns `other` if the option value is present, otherwise returns self.
---
---    local optA = Option.of("abc")
---    local optB = Option.of("123")
+--    local optA = outcome.some("abc")
+--    local optB = outcome.some("123")
 --    assert(optB = optA:andOther(optB))
 --
--- @tparam `Option<T>` other Alternative Option to return.
+-- @tparam Option other Alternative `Option<T>` to return.
 -- @treturn Option Returns `Option<T>`
-function Option:andOther(other)
-  if self._value ~= nil then
-    return assertOption(other)
-  else
-    return self
-  end
-end
+function Option:andOther(other) end
 
---- Returns self if a value is present, otherwise returns `other`.
+--- Returns self if a value is Some, otherwise returns `other`.
 --
---    local optA = Option.empty()
---    local optB = Option.of("123")
+--    local optA = outcome.none()
+--    local optB = outcome.some("123")
 --    assert(optB = optA:orOther(optB))
 --
--- @tparam `Option<T>` other Alternative Option to return.
+-- @tparam Option other Alternative `Option<T>` to return.
 -- @treturn Option Returns `Option<T>`
-function Option:orOther(other)
-  if self._value ~= nil then
-    return self
-  else
-    return assertOption(other)
-  end
-end
+function Option:orOther(other) end
 
---- Returns self if a value is present, otherwise returns the result of f.
+--- Returns self if a value is Some, otherwise returns the result of f.
 --
---    local optA = Option.empty()
+--    local optA = outcome.none()
 --    local optB = optA:orElseOther(function()
---      return Option.of("123")
+--      return outcome.some("123")
 --    end)
 --    assert(optB:unwrap() == "123")
 --
 -- @tparam function f Function that returns an `Option<T>`.
 -- @treturn Option Returns `Option<T>`
-function Option:orElseOther(f)
-  if self._value ~= nil then
-    return self
-  else
-    return assertOption(f())
-  end
-end
+function Option:orElseOther(f) end
 
 --- Maps an `Option<T>` to `Option<U>` by applying a function to the contained
 -- value.
 --
---    local value Option.of(1)
+--    local value outcome.some(1)
 --        :map(function(value) return value + 1 end)
 --        :unwrap()
 --
@@ -272,50 +176,38 @@ end
 --
 -- @tparam function f Function that accepts T and returns U.
 -- @treturn Option Returns `Option<U>`
-function Option:map(f)
-  if self._value == nil then
-    return self
-  else
-    return Option.of(f(self._value))
-  end
-end
+function Option:map(f) end
 
 --- Applies a function to the contained value (if any), or returns a default.
 --
---    local value Option.of("foo")
+--    local value outcome.some("foo")
 --        :mapOr("baz", function(value) return value .. " test" end)
 --        :unwrap()
 --
 --    assert(value == "foo test")
 --
---    value Option.empty()
+--    value outcome.none()
 --        :mapOr("baz", function(value) return value .. " test" end)
 --        :unwrap()
 --
 --    assert(value == "baz")
 --
--- @param defaultValue Value U to return if the option is empty.
+-- @param defaultValue Value U to return if the option is None.
 -- @tparam function f Function that accepts T and returns U.
 -- @treturn Option Returns `Option<U>`
-function Option:mapOr(defaultValue, f)
-  if self._value == nil then
-    return Option.of(defaultValue)
-  else
-    return Option.of(f(self._value))
-  end
-end
+function Option:mapOr(defaultValue, f) end
 
 --- Applies a function to the contained value (if any), or computes a default.
 --
 --    local mapFunction = function(value) return value .. "test" end)
 --
---    local value Option.of("foo")
+--    local value outcome.some("foo")
 --        :mapOr(function() return "baz" end), mapFunction)
 --        :unwrap()
 --
 --    assert(value == "foo test")
 --
---    value Option.empty()
+--    value outcome.none()
 --        :mapOr(function() return "baz" end), mapFunction)
 --        :unwrap()
 --
@@ -324,68 +216,229 @@ end
 -- @tparam function defaultProvider Default function to invoke that returns U.
 -- @tparam function mapFunction Function that accepts T and returns U.
 -- @treturn Option Returns `Option<U>`
-function Option:mapOrElse(defaultProvider, mapFunction)
-  if self._value == nil then
-    return Option.of(defaultProvider())
-  else
-    return Option.of(mapFunction(self._value))
-  end
-end
+function Option:mapOrElse(defaultProvider, mapFunction) end
 
---- Returns an empty option if the option value is not preset. Otherwise calls
+--- Returns an None option if the option value is not preset. Otherwise calls
 -- f with the wrapped value and returns the result.
 --
---    local value = Option.of(1)
---        :flatmap(function(value) return Option.of(value + 1) end)
+--    local value = outcome.some(1)
+--        :flatmap(function(value) return outcome.some(value + 1) end)
 --        :unwrap()
 --
 --    assert(value == 2)
 --
 -- @tparam function f Function that accepts T and returns `Option<U>`.
 -- @treturn Option Returns `Option<U>`
-function Option:flatmap(f)
-  if self._value == nil then
-    return self
-  else
-    return assertOption(f(self._value))
-  end
-end
+function Option:flatmap(f) end
 
---- Transforms the `Option<T>` into a `Result<T, E>`, mapping a present value to
--- an Ok Result, and an empty value to Result err.
+--- Filters a Some Option through `f` and if `f` returns false, creates a
+-- None Option. None Option is returned as-is and not passed to `f`.
+-- @tparam function f Filter function that receives a value and returns bool.
+-- @treturn Option Returns `Option<T>`
+function Option:filter(f) end
+
+--- Transforms the `Option<T>` into a `Result<T, E>`, mapping a Some value to
+-- an Ok Result, and an None value to Result err.
 --
---    local res = Option.of(1):okOr("error data if empty")
+--    local res = outcome.some(1):okOr("error data if None")
 --    assert(res:isOk())
 --    assert(res:unwrap() == 1)
 --
--- @tparam function err Error to use in the Result if the value is empty.
+-- @tparam function err Error to use in the Result if the value is None.
 -- @treturn Result Returns `Result<T, E>`
-function Option:okOr(err)
-  if self._value ~= nil then
-    return outcome.Result.ok(self._value)
-  else
-    return outcome.Result.err(err)
-  end
-end
+function Option:okOr(err) end
 
---- Transforms the `Option<T>` into a `Result<T, E>`, mapping a present value
--- to an Ok Result, and an empty value to Result err.
+--- Transforms the `Option<T>` into a `Result<T, E>`, mapping a Some value
+-- to an Ok Result, and an None value to Result err.
 --
---    local res = Option.of(1):okOrElse(function()
---      return "error data if empty"
+--    local res = outcome.some(1):okOrElse(function()
+--      return "error data if None"
 --    end)
 --    assert(res:isOk())
 --    assert(res:unwrap() == 1)
 --
 -- @tparam function errorProvider Function that returns E.
 -- @treturn Result Returns `Result<T, E>`
-function Option:okOrElse(errorProvider)
-  if self._value ~= nil then
-    return outcome.Result.ok(self._value)
+function Option:okOrElse(errorProvider) end
+
+-- Option None implementation
+------------------------------------------------------------------------------
+
+--- Represents a None Option.
+--
+-- We use two different implementations of Option for both None and Some in
+-- order to remove branching from the various methods.
+local None = {}
+
+local NoneMetatable = {
+  __index = None,
+  __lt = function (_, _) return true end,
+  __le = function (_, _) return true end,
+}
+
+function None:isSome()
+  return false
+end
+
+function None:isNone()
+  return true
+end
+
+function None:unwrap()
+  return self:expect()
+end
+
+function None:expect(message)
+  error(message or "Call to unwrap on a nil value")
+end
+
+function None:unwrapOr(defaultValue)
+  return defaultValue
+end
+
+function None:unwrapOrElse(valueProvider)
+  return valueProvider()
+end
+
+function None:ifSome(_)
+  -- pass
+end
+
+function None:ifNone(consumer)
+  consumer()
+end
+
+function None:andOther(_)
+  return self
+end
+
+function None:orOther(other)
+  return assertOption(other)
+end
+
+function None:orElseOther(f)
+  return assertOption(f())
+end
+
+function None:map(_)
+  return self
+end
+
+function None:flatmap(_)
+  return self
+end
+
+function None:mapOr(defaultValue, _)
+  return outcome.some(defaultValue)
+end
+
+function None:mapOrElse(defaultProvider, _)
+  return outcome.some(defaultProvider())
+end
+
+function None:filter(_)
+  return self
+end
+
+function None:okOr(err)
+  return outcome.outcome.err(err)
+end
+
+function None:okOrElse(errorProvider)
+  return outcome.outcome.err(errorProvider())
+end
+
+-- Option Some implementation
+------------------------------------------------------------------------------
+
+--- Represents a Some Option.
+local Some = {}
+
+local SomeMetatable = {
+  __index = Some,
+  __lt = function (lhs, rhs) return lhs._value < rhs._value end,
+  __le = function (lhs, rhs) return lhs._value <= rhs._value end,
+  __eq = function(a, b) return a._value == b._value end
+}
+
+function Some:isSome()
+  return true
+end
+
+function Some:isNone()
+  return false
+end
+
+function Some:unwrap()
+  return self._value
+end
+
+function Some:expect(_)
+  return self._value
+end
+
+function Some:unwrapOr(_)
+  return self._value
+end
+
+function Some:unwrapOrElse(_)
+  return self._value
+end
+
+function Some:ifSome(consumer)
+  consumer(self._value)
+end
+
+function Some:ifNone(_)
+  -- pass
+end
+
+function Some:andOther(other)
+  return assertOption(other)
+end
+
+function Some:orOther(_)
+  return self
+end
+
+function Some:orElseOther(_)
+  return self
+end
+
+function Some:map(f)
+  return outcome.some(f(self._value))
+end
+
+function Some:mapOr(_, f)
+  return outcome.some(f(self._value))
+end
+
+function Some:mapOrElse(_, mapFunction)
+  return outcome.some(mapFunction(self._value))
+end
+
+function Some:flatmap(f)
+  return assertOption(f(self._value))
+end
+
+function Some:filter(f)
+  if f(self._value) then
+    return self
   else
-    return outcome.Result.err(errorProvider())
+    return outcome._NONE_OPTION
   end
 end
+
+function Some:okOr(_)
+  return outcome.outcome.ok(self._value)
+end
+
+function Some:okOrElse(_)
+  return outcome.outcome.ok(self._value)
+end
+
+-- Result
+------------------------------------------------------------------------------
 
 --- `Result<T, E>` is a type used for returning and propagating errors.
 --
@@ -400,108 +453,30 @@ end
 --    local Result = outcome.Result
 --
 --    -- Results are either Ok or Err.
---    assert(Result.ok("ok value"):isOk())
---    assert(Result.err("error value"):isErr())
+--    assert(outcome.ok("ok value"):isOk())
+--    assert(outcome.err("error value"):isErr())
 --
 --    -- You can map over the Ok value in a Result.
---    local result = Result.ok(1)
+--    local result = outcome.ok(1)
 --        :map(function(value) return value + 1 end)
 --        :unwrap()
 --
 --    assert(result == 2)
 --
 --    -- Raises an error with the message provided in expect.
---    Result.err("error value"):expect("Result was not Ok"):
+--    outcome.err("error value"):expect("Result was not Ok"):
 --
 --    -- You can provide a default value when unwrapping a Result.
---    assert("foo" == Result.err("error value"):unwrapOr("foo"))
+--    assert("foo" == outcome.err("error value"):unwrapOr("foo"))
 --
 -- @type Result
-local Result = {}
-
-local ResultMetatable = {
-  __index = Result,
-  __lt = function (lhs, rhs)
-    return lhs._kind == rhs._kind
-        and lhs._value ~= nil and rhs._value ~= nil
-        and lhs._value < rhs._value
-  end,
-  __le = function (lhs, rhs)
-    return lhs._kind == rhs._kind
-        and lhs._value ~= nil and rhs._value ~= nil
-        and lhs._value <= rhs._value
-  end,
-  __eq = function(lhs, rhs)
-    return lhs._kind == rhs._kind and lhs._value == rhs._value
-  end
-}
-
-local OK, ERR = true, false
+local Result = {} -- luacheck: ignore
 
 local function assertResult(value)
-  assert(type(value) == "table" and getmetatable(value) == ResultMetatable,
-      "Value must be a `Result<T, E>`. Found " .. type(value))
-  return value
-end
-
---- Create a new Ok Result.
---
---    local res = Result.ok("foo")
---    assert(res:isOk())
---    assert(res:unwrap() == "foo")
---
--- @tparam T value Ok value to wrap.
--- @treturn Result Returns `Result<T, E>`
-function Result.ok(value)
-  return setmetatable({_value = value, _kind = OK}, ResultMetatable)
-end
-
---- Create a new Err Result.
---
---    local res = Result.err("error message")
---    assert(res:isErr())
---    assert(res:unwrapErr() == "message")
---
---    -- Err values can be of any type.
---    local resWithComplexErr = Result.err({foo = true})
---    assert(resWithComplexErr:isErr())
---    assert(resWithComplexErr:unwrapErr().foo == true)
---
--- @tparam T value Error value to wrap.
--- @treturn Result Returns `Result<T, E>`
-function Result.err(value)
-  return setmetatable({_value = value, _kind = ERR}, ResultMetatable)
-end
-
---- Invokes a function and returns a `Result<T, E>`.
--- If the function errors, an Err Result is returned.
---
---    local res = Result.pcall(error, "oh no!")
---    assert(res:isErr())
---    assert(res:unwrapErr() == "oh no!")
---
--- @tparam function f Function to invoke that returns T or raises E.
--- @tparam ... Arguments to pass to the function.
--- @treturn Result Returns `Result<T, E>`
-function Result.pcall(f, ...)
-  local value, err = pcall(f, ...)
-  if err then
-    return Result.ok(value)
-  else
-    return Result.err(err)
+  if type(value) ~= "table" or value.class ~= RESULT_CLASS then
+    error("Value must be a `Result<T, E>`. Found " .. type(value))
   end
-end
-
---- Returns true if the result is Ok.
--- @treturn bool
-function Result:isOk()
-  return self._kind == OK
-end
-
---- Returns true if the result is an error.
--- @treturn bool
-function Result:isErr()
-  return self._kind == ERR
+  return value
 end
 
 local function errorToString(value)
@@ -522,161 +497,113 @@ local function errorToString(value)
   end
 end
 
+local function resultLt(lhs, rhs)
+  return lhs._kind == rhs._kind
+      and lhs._value ~= nil and rhs._value ~= nil
+      and lhs._value < rhs._value
+end
+
+local function resultLte(lhs, rhs)
+  return lhs._kind == rhs._kind
+      and lhs._value ~= nil and rhs._value ~= nil
+      and lhs._value <= rhs._value
+end
+
+local function resultEq(lhs, rhs)
+  return lhs._kind == rhs._kind and lhs._value == rhs._value
+end
+
+--- Returns true if the result is Ok.
+-- @treturn bool
+function Result:isOk() end
+
+--- Returns true if the result is an error.
+-- @treturn bool
+function Result:isErr() end
+
+--- Invokes a method with the value if the Result is Ok.
+-- @tparam function consumer Consumer to invoke with a side effect.
+function Result:ifOk(consumer) end
+
+--- Invokes a method if the Result is an Err and passes the error to consumer.
+-- @tparam function consumer Method to invoke if the value is error.
+function Result:ifErr(consumer) end
+
 --- Returns the value if Ok, or raises an error using the error value.
 -- @return T the wrapped result value.
 -- @raise Errors with if the result is Err.
-function Result:unwrap()
-  if self._kind == ERR then
-    error(errorToString(self._value))
-  end
-  return self._value
-end
+function Result:unwrap() end
 
 --- Unwraps a result, yielding the content of an Err.
 -- @return E the error value.
 -- @raise Errors if the value is Ok.
-function Result:unwrapErr()
-  assert(self._kind == ERR, "Call to unwrapErr on an Ok Result")
-  return self._value
-end
-
---- Unwraps and returns the value if Ok, or errors with a message.
--- @tparam string message Message to include in the error.
--- @return T returns the wrapped value.
-function Result:expect(message)
-  assert(self._kind == OK, message)
-  return self._value
-end
+function Result:unwrapErr() end
 
 --- Unwraps and returns the value if Ok, or returns default value.
 -- @param defaultValue Default value T to return.
 -- @return T returns the wrapped value or the default.
-function Result:unwrapOr(defaultValue)
-  if self._kind == OK then
-    return self._value
-  else
-    return defaultValue
-  end
-end
+function Result:unwrapOr(defaultValue) end
 
 --- Unwraps and returns the value if Ok, or returns the result of invoking
 -- a method that when called returns a value.
 -- @tparam function valueProvider Function to invoke if the value is an error.
 -- @return T returns the Ok value or the value returned from valueProvider.
-function Result:unwrapOrElse(valueProvider)
-  if self._kind == OK then
-    return self._value
-  else
-    return valueProvider()
-  end
-end
+function Result:unwrapOrElse(valueProvider) end
 
---- Invokes a method with the value if the Result is Ok.
--- @tparam function consumer Consumer to invoke with a side effect.
-function Result:ifOk(consumer)
-  if self._kind == OK then
-    consumer(self._value)
-  end
-end
-
---- Invokes a method if the Result is an Err and passes the error to consumer.
--- @tparam function consumer Method to invoke if the value is error.
-function Result:ifErr(consumer)
-  if self._kind == ERR then
-    consumer(self._value)
-  end
-end
-
---- Converts from `Result<T, E>` to `Option<T>`.
--- Converts self into an `Option<T>`, consuming self, and discarding the error,
--- if any.
--- @treturn Result Returns `Result<T, E>`
-function Result:okOption()
-  if self._kind == OK then
-    return Option.of(self._value)
-  else
-    return Option.empty()
-  end
-end
-
---- Converts from `Result<T, E>` to `Option<E>`.
--- Converts self into an `Option<E>`, consuming self, and discarding the
--- success value, if any.
--- @treturn Result Returns `Result<T, E>`
-function Result:errOption()
-  if self._kind == ERR then
-    return Option.of(self._value)
-  else
-    return Option.empty()
-  end
-end
+--- Unwraps and returns the value if Ok, or errors with a message.
+-- @tparam string message Message to include in the error.
+-- @return T returns the wrapped value.
+function Result:expect(message) end
 
 --- Returns other if the result is Ok, otherwise returns the Err value of self.
 -- @tparam Result other `Result<T, E>` other Alternative Result to return.
 -- @treturn Result Returns `Result<T, E>`
-function Result:andOther(other)
-  if self._kind == OK then
-    return assertResult(other)
-  else
-    return self
-  end
-end
+function Result:andOther(other) end
 
 --- Returns other if the result is Err, otherwise returns self.
 --
---    local value = Result.err("error!")
---        :orOther(Result.ok(1))
+--    local value = outcome.err("error!")
+--        :orOther(outcome.ok(1))
 --        :unwrap()
 --
 --    assert(value == 1)
 --
---    value = Result.ok(1)
---        :orOther(Result.ok(999))
+--    value = outcome.ok(1)
+--        :orOther(outcome.ok(999))
 --        :unwrap()
 --
 --    assert(value == 1)
+--
 -- @tparam Result other `Result<T, E>` other Alternative Result to return.
 -- @treturn Result Returns `Result<T, E>`
-function Result:orOther(other)
-  if self._kind == OK then
-    return self
-  else
-    return assertResult(other)
-  end
-end
+function Result:orOther(other) end
 
 --- Calls resultProvider if the result is Err, otherwise returns self.
 --
 -- This function can be used for control flow based on result values.
 --
---    local value = Result.err("error!")
---        :orElseOther(function(v) return Result.ok(1) end)
+--    local value = outcome.err("error!")
+--        :orElseOther(function(v) return outcome.ok(1) end)
 --        :unwrap()
 --
 --    assert(value == 1)
 --
---    value = Result.ok(1)
---        :orElseOther(function(v) return Result.ok(999) end)
+--    value = outcome.ok(1)
+--        :orElseOther(function(v) return outcome.ok(999) end)
 --        :unwrap()
 --
 --    assert(value == 1)
 --
 -- @tparam function resultProvider Function that returns `Result<T, E>`.
 -- @treturn Result Returns `Result<T, E>`
-function Result:orElseOther(resultProvider)
-  if self._kind == OK then
-    return self
-  else
-    return assertResult(resultProvider())
-  end
-end
+function Result:orElseOther(resultProvider) end
 
 --- Maps a `Result<T, E>` to `Result<U, E>` by applying a function to a
 -- contained Ok value, leaving an Err value untouched.
 --
 -- This function can be used to compose the results of two functions.
 --
---    local value = Result.ok(1)
+--    local value = outcome.ok(1)
 --        :map(function(v) return v + 1 end)
 --        :unwrap()
 --
@@ -684,13 +611,7 @@ end
 --
 -- @tparam function f Function that accepts `T` and returns `U`.
 -- @treturn Result Returns `Result<U, E>`
-function Result:map(f)
-  if self._kind == OK then
-    return Result.ok(f(self._value))
-  else
-    return self
-  end
-end
+function Result:map(f) end
 
 --- Maps a `Result<T, E>` to `Result<T, F>` by applying a function to a
 -- contained Err value, leaving an Ok value untouched.
@@ -698,7 +619,7 @@ end
 -- This function can be used to pass through a successful result while handling
 -- an error.
 --
---    local value = Result.err(1)
+--    local value = outcome.err(1)
 --        :mapErr(function(v) return v + 1 end)
 --        :unwrapErr()
 --
@@ -706,36 +627,303 @@ end
 --
 -- @tparam function f Function that accepts `E` and returns `U`.
 -- @treturn Result Returns `Result<T, F>`
-function Result:mapErr(f)
-  if self._kind == ERR then
-    return Result.err(f(self._value))
-  else
-    return self
-  end
-end
+function Result:mapErr(f) end
 
 --- Calls f if the result is Ok, otherwise returns the Err value of self.
 --
 -- This function can be used for control flow based on Result values.
 --
---    local value = Result.ok(1)
---        :flatmap(function(v) return Result.ok(v + 1) end)
+--    local value = outcome.ok(1)
+--        :flatmap(function(v) return outcome.ok(v + 1) end)
 --        :unwrap()
 --
 --    assert(value == 2)
 --
 -- @tparam function f Function that accepts T and returns `Result<T. E>`.
 -- @treturn Result Returns `Result<T, E>`
-function Result:flatmap(f)
-  if self._kind == OK then
-    return assertResult(f(self._value))
+function Result:flatmap(f) end
+
+--- Converts from `Result<T, E>` to `Option<T>`.
+-- Converts self into an `Option<T>`, consuming self, and discarding the error,
+-- if any.
+-- @treturn Result Returns `Result<T, E>`
+function Result:okOption() end
+
+--- Converts from `Result<T, E>` to `Option<E>`.
+-- Converts self into an `Option<E>`, consuming self, and discarding the
+-- success value, if any.
+-- @treturn Result Returns `Result<T, E>`
+function Result:errOption() end
+
+-- Result Ok implementation
+------------------------------------------------------------------------------
+
+--- Similarly to Some/None, we use two classes in order to remove branching
+-- from the underlying Ok/Err Result implementations.
+local Ok = {} -- luacheck: ignore
+
+local OkMetatable = {
+  __index = Ok,
+  __lt = resultLt,
+  __le = resultLte,
+  __eq = resultEq,
+}
+
+function Ok:isOk()
+  return true
+end
+
+function Ok:isErr()
+  return false
+end
+
+function Ok:unwrap()
+  return self._value
+end
+
+function Ok:unwrapErr()
+  return self._value
+end
+
+function Ok:expect(_)
+  return self._value
+end
+
+function Ok:unwrapOr(_)
+  return self._value
+end
+
+function Ok:unwrapOrElse(_)
+  return self._value
+end
+
+function Ok:ifOk(consumer)
+  consumer(self._value)
+end
+
+function Ok:ifErr(_)
+  -- pass
+end
+
+function Ok:okOption()
+  return outcome.some(self._value)
+end
+
+function Ok:errOption()
+  return outcome.none()
+end
+
+function Ok:andOther(other)
+  return assertResult(other)
+end
+
+function Ok:orOther(_)
+  return self
+end
+
+function Ok:orElseOther(_)
+  return self
+end
+
+function Ok:map(f)
+  return outcome.ok(f(self._value))
+end
+
+function Ok:mapErr(_)
+  return self
+end
+
+function Ok:flatmap(f)
+  return assertResult(f(self._value))
+end
+
+-- Result Err implementation
+------------------------------------------------------------------------------
+
+--- Err Result implementation.
+local Err = {}
+
+local ErrMetatable = {
+  __index = Err,
+  __lt = resultLt,
+  __le = resultLte,
+  __eq = resultEq,
+}
+
+function Err:isOk()
+  return false
+end
+
+function Err:isErr()
+  return true
+end
+
+function Err:unwrap()
+  error(errorToString(self._value))
+end
+
+function Err:unwrapErr()
+  return self._value
+end
+
+function Err:expect(message)
+  error(message)
+end
+
+function Err:unwrapOr(defaultValue)
+  return defaultValue
+end
+
+function Err:unwrapOrElse(valueProvider)
+  return valueProvider()
+end
+
+function Err:ifOk(_)
+  -- pass
+end
+
+function Err:ifErr(consumer)
+  consumer(self._value)
+end
+
+function Err:okOption()
+  return outcome.none()
+end
+
+function Err:errOption()
+  return outcome.some(self._value)
+end
+
+function Err:andOther(_)
+  return self
+end
+
+function Err:orOther(other)
+  return assertResult(other)
+end
+
+function Err:orElseOther(resultProvider)
+  return assertResult(resultProvider())
+end
+
+function Err:map(_)
+  return self
+end
+
+function Err:mapErr(f)
+  return outcome.err(f(self._value))
+end
+
+function Err:flatmap(_)
+  return self
+end
+
+outcome._NONE_OPTION = setmetatable({class = OPTION_CLASS}, NoneMetatable)
+
+-- Public functions
+------------------------------------------------------------------------------
+
+--- Returns either a None or Some Option based on if the value == nil.
+--
+--    local opt = outcome.option(nil)
+--    assert(opt:isNone())
+--
+--    local opt = outcome.option("foo")
+--    assert(opt:isSome())
+--
+-- @treturn Option Returns `Option<T>`
+-- @within Option functions
+function outcome.option(value)
+  if value == nil then
+    return outcome._NONE_OPTION
   else
-    return self
+    return outcome.some(value)
   end
 end
 
-outcome.Result = Result
-outcome.Option = Option
-outcome._EMPTY_OPTION = Option.of(nil)
+--- Create a new Option, wrapping a value.
+-- If the provided value is nil, then the Option is considered None.
+--
+--    local opt = outcome.some("abc")
+--    assert(opt:isSome())
+--    assert("abc" == opt:unwrap())
+--
+-- @param value Value T to wrap.
+-- @treturn Option `Option<T>`
+-- @within Option functions
+function outcome.some(value)
+  if value == nil then error("A Some Option value may not be nil") end
+  return setmetatable({_value = value, class = OPTION_CLASS}, SomeMetatable)
+end
+
+--- Returns a None Option.
+--
+--    local opt = outcome.none()
+--    assert(opt:isNone())
+--
+-- @treturn Option Returns `Option<T>`
+-- @within Option functions
+function outcome.none()
+  return outcome._NONE_OPTION
+end
+
+--- Create a new Ok Result.
+--
+--    local res = outcome.ok("foo")
+--    assert(res:isOk())
+--    assert(res:unwrap() == "foo")
+--
+-- @tparam T value Ok value to wrap.
+-- @treturn Result Returns `Result<T, E>`
+-- @within Result functions
+function outcome.ok(value)
+  return setmetatable({
+    _value = value,
+    _kind = OK,
+    class = RESULT_CLASS,
+  }, OkMetatable)
+end
+
+--- Create a new Err Result.
+--
+--    local res = outcome.err("error message")
+--    assert(res:isErr())
+--    assert(res:unwrapErr() == "message")
+--
+--    -- Err values can be of any type.
+--    local resWithComplexErr = outcome.err({foo = true})
+--    assert(resWithComplexErr:isErr())
+--    assert(resWithComplexErr:unwrapErr().foo == true)
+--
+-- @tparam T value Error value to wrap.
+-- @treturn Result Returns `Result<T, E>`
+-- @within Result functions
+function outcome.err(value)
+  return setmetatable({
+    _value = value,
+    _kind = ERR,
+    class = RESULT_CLASS,
+  }, ErrMetatable)
+end
+
+--- Invokes a function and returns a `Result<T, E>`.
+-- If the function errors, an Err Result is returned.
+--
+--    local res = Result.pcall(error, "oh no!")
+--    assert(res:isErr())
+--    assert(res:unwrapErr() == "oh no!")
+--
+-- @tparam function f Function to invoke that returns T or raises E.
+-- @tparam ... Arguments to pass to the function.
+-- @treturn Result Returns `Result<T, E>`
+-- @within Result functions
+function outcome.pcall(f, ...)
+  local value, err = pcall(f, ...)
+  if err then
+    return outcome.ok(value)
+  else
+    return outcome.err(err)
+  end
+end
 
 return outcome
